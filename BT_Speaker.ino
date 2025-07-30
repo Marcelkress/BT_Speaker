@@ -32,7 +32,7 @@ const unsigned long disconnectHoldDuration = 2000;  // 2 seconds
 bool longPressHandled;
 
 // Volume variables
-int volumeUpPin = 23;
+int volumeUpPin = 13;
 int lastUpState = HIGH; // the previous state from the input pin
 int currentUpState; 
 
