@@ -8,6 +8,10 @@ const uint8_t I2S_SDOUT = 19;    /* ESP32 audio data output (to speakers) - DAC:
 I2SClass i2s;
 BluetoothA2DPSink a2dp_sink(i2s);
 
+// Volume indicator
+const int VOL_LED_PIN = A0;          // Replace with your actual LED pin
+
+
 // Bluetooth connection 
 int statusLED = 14;
 bool connected = false;
@@ -18,11 +22,12 @@ int onOffLED = 32;
 // Touch sensor variables
 #define touchSensorPin 21
 bool playing = false;
-
 int lastTouchState = LOW;
 unsigned long lastTapTime = 0;
 int tapCount = 0;
 float tapWaitTime = 500;
+bool isTouchPressed = false;
+float holdToPauseTime = 700;
 
 // Sleep variables
 #define SLEEP_BUTTON_PIN 33  // Use GPIO 0 or another RTC-capable pin
@@ -41,7 +46,7 @@ int lastDownState = HIGH;
 int currentDownState;
 
 int currentVolumePercent = 50;
-int volumeInterval = 10;
+int volumeInterval = 5;
 
 void setup() 
 {
@@ -90,41 +95,10 @@ void loop()
   // Checking if device is still connected
   connected = a2dp_sink.is_avrc_connected();
   digitalWrite(statusLED, connected ? HIGH : LOW);
+
+  currentVolumePercent = (a2dp_sink.get_volume() * 100) / 127;
   
   // -------- TOUCH SENSOR -----------
-  /*
-  touchSensor();
-  static bool lastTouch = false;
-  bool currentTouch = digitalRead(touchSensorPin);  // HIGH = touched
-
-  // Touch started - recorded
-  if (currentTouch && !lastTouch) 
-  {
-    buttonPressTime = millis();
-  }
-
-  // When touch ends / when finger releases button
-  if (!currentTouch && lastTouch) 
-  {
-    // Recording the duration of the press
-    unsigned long pressDuration = millis() - buttonPressTime;
-
-    // We count a tap if the button is held for between a min and max amount of time
-    if (pressDuration > playPauseTime && pressDuration < maxPressTime) 
-    {
-        if (playing) 
-        {
-          a2dp_sink.pause();
-        } 
-        else 
-        {
-          a2dp_sink.play();
-        }
-    }
-  }
-
-  lastTouch = currentTouch;
-  */
   touchSensor();
 
   // -------- VOLUME -----------
@@ -132,6 +106,9 @@ void loop()
 
   //----------- SLEEP -------------
   powerButton();
+
+  // --------- VOL INDICATOR --------
+  volumeIndicator();
 }
 
 void touchSensor()
@@ -142,6 +119,7 @@ void touchSensor()
   // Detect rising edge (tap)
   if (touchState == HIGH && lastTouchState == LOW) 
   {
+    isTouchPressed = true;
     tapCount++;
     lastTapTime = currentTime;
   }
@@ -150,33 +128,54 @@ void touchSensor()
   if (tapCount > 0 && (currentTime - lastTapTime > tapWaitTime)) 
   {
     if (tapCount == 1) {
-      Serial.println("Single tap detected: Pausing...");
-      if (playing) 
-        {
-          a2dp_sink.pause();
-        } 
-        else 
-        {
-          a2dp_sink.play();
-        }
+      Serial.println("Single tap detected: do nothing");
     }
     else if (tapCount == 2) {
       Serial.println("Double tap detected: Fast-forwarding...");
       a2dp_sink.next();
     }
-    else {
-      Serial.print("Multi-tap (");
-      Serial.print(tapCount);
-      Serial.println(") ignored.");
+    else if(tapCount == 3){
+      Serial.print("Triple-tap: previous");
+      a2dp_sink.previous();
     }
 
     // Reset after action
     tapCount = 0;
   }
 
+  if(touchState == HIGH && isTouchPressed)
+  {
+    if(millis() - lastTapTime > holdToPauseTime)
+    {
+      if (playing) 
+      {
+        a2dp_sink.pause();
+      } 
+      else 
+      {
+        a2dp_sink.play();
+      }
+      isTouchPressed = false;
+    }
+    
+  }
+
+  if(touchState == LOW && isTouchPressed)
+  {
+    isTouchPressed = false;
+  }
+
   lastTouchState = touchState;
 }
 
+void volumeIndicator()
+{
+  currentVolumePercent = (a2dp_sink.get_volume() * 100) / 127;
+
+  currentVolumePercent = map(currentVolumePercent, 0, 100, 0, 255);
+
+  analogWrite(VOL_LED_PIN, currentVolumePercent);
+}
 
 void volumeButtons()
 {
@@ -214,7 +213,7 @@ void volumeButtons()
   }
   lastDownState = currentDownState;
 
-  currentVolumePercent = (a2dp_sink.get_volume() * 100) / 127;
+  
 }
 
 void powerButton()
